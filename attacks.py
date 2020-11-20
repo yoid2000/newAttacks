@@ -1,11 +1,8 @@
 import whereParser
 import rowFiller
 import pprint
-
-''' Configuration '''
-if True: testControl = 'firstOnly'    # executes only the first test
-elif False: testControl = 'tagged'    # executes only tests so tagged
-else: testControl = 'all'             # executes all tests
+import pandas as pd
+import numpy as np
 
 defaultNumSamples = 100               # number of times each test should repeat (for average)
 
@@ -16,15 +13,23 @@ class runAttack:
         self.attack = attack
         # build attack database
         self.sw = whereParser.simpleWhere(attack['conditionsSql'])
-        self.rf = rowFiller.rowFiller(self.sw)
+        self.rf = rowFiller.rowFiller(self.sw,printIntermediateTables=False)
         self.rf.makeBaseTables()
         if len(self.rf.failedCombinations) > 0:
             print("Failed Combinations:")
             print(self.rf.failedCombinations)
             quit()
-        self.rf.pruneBaseTables(attack['prune']['table'],attack['prune']['query'])
+        for change in attack['changes']:
+            if change['change'] == 'append':
+                self.rf.appendDf(change['table'],change['spec'])
+            elif change['change'] == 'strip':
+                self.rf.stripAllButX(change['table'],change['query'])
+                pass
+        self.rf.baseTablesToDb()
+        #self.rf.stripAllButX(attack['strip']['table'],attack['strip']['query'])
 
-    def runAttack(self):
+    def runCheck(self):
+        ''' This just checks to make sure that an attack on the raw data works as expected '''
         attackFunc = self.attackMap[self.attack['attackType']]
         if attackFunc(self,check=True):
             print(f"PASSED: {self.attack['describe']}")
@@ -51,35 +56,56 @@ class runAttack:
         'simpleDifference': _simpleDifference,
     }
 
-
 ''' List of Attacks '''
 attacks = [
     {   
         'tagAsRun': True,
         'attackType': 'simpleDifference',
-        'describe': 'Simple difference attack with single OR',
+        'describe': 'Simple difference attack with single OR, victim does not have attribute',
+        # The attack here is where there is one user with i1=12345. We want to know
+        # if that user has value t1='y' or not.
+        'conditionsSql': "select count(*) from tab where t1='y' or i1=3456",
+        # I want to make a scenario where the victim has t1=y. So I prune all
+        # but one of the users that has i1=3456 and t1=y
+        'changes': [
+            {'change':'append', 'table':'tab','spec': {'aid1':['new'],'t1':['y'],'i1':[12345]}},
+        ],
+        # The first query definately has the user
+        'attack1': "select count(distinct aid1) from tab where t1='y' or i1=12345",
+        # The second query may or may not (but in this case also does).
+        'attack2': "select count(distinct aid1) from tab where t1='y'",
+        # If the second query does not have the victim, then the difference is 0
+        'difference': 0
+    },
+    {   
+        'tagAsRun': True,
+        'attackType': 'simpleDifference',
+        'describe': 'Simple difference attack with single OR, victim has attribute',
         # The attack here is where there is one user with i1=12345. We want to know
         # if that user has value t1='y' or not.
         'conditionsSql': "select count(*) from tab where t1='y' or i1=12345",
         # I want to make a scenario where the victim does not have t1=y. So I prune all
         # but one of the users that has i1=12345 but not t1=y
-        'prune': {'table':'tab','query': "t1 != 'y' and i1 == 12345"},
+        'changes': [
+            {'change':'strip', 'table':'tab','query': "t1 != 'y' and i1 == 12345"},
+        ],
         # The first query definately has the user
         'attack1': "select count(distinct aid1) from tab where t1='y' or i1=12345",
-        # The second query may or may not.
+        # The second query may or may not (in this case does not).
         'attack2': "select count(distinct aid1) from tab where t1='y'",
         # If the second query does not have the victim, then the difference is 1
         'difference': 1
     },
 ]
 
-if True: testControl = 'firstOnly'    # executes only the first test
-elif False: testControl = 'tagged'    # executes only tests so tagged
+if False: testControl = 'firstOnly'    # executes only the first test
+elif True: testControl = 'tagged'    # executes only tests so tagged
 else: testControl = 'all'             # executes all tests
+
 for attack in attacks:
     if (testControl == 'firstOnly' or testControl == 'all' or
         (testControl == 'tagged' and attack['tagAsRun'])):
         ra = runAttack(attack)
-        ra.runAttack()
+        ra.runCheck()
     if testControl == 'firstOnly':
         break
