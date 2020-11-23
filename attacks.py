@@ -1,6 +1,7 @@
 import whereParser
 import rowFiller
 import pprint
+import re
 import pandas as pd
 import numpy as np
 
@@ -23,10 +24,8 @@ class runAttack:
             if change['change'] == 'append':
                 self.rf.appendDf(change['table'],change['spec'])
             elif change['change'] == 'strip':
-                self.rf.stripAllButX(change['table'],change['query'])
-                pass
+                self.rf.stripDf(change['table'],change['query'])
         self.rf.baseTablesToDb()
-        #self.rf.stripAllButX(attack['strip']['table'],attack['strip']['query'])
 
     def runCheck(self):
         ''' This just checks to make sure that an attack on the raw data works as expected '''
@@ -42,8 +41,10 @@ class runAttack:
     def _simpleDifference(self,check=False):
         if check:
             # First run check to make sure that the attack works on raw data
-            ans1 = self.rf.queryDb(self.attack['attack1'])[0][0]
-            ans2 = self.rf.queryDb(self.attack['attack2'])[0][0]
+            sql1 = self._doSqlReplace(self.attack['attack1'])
+            ans1 = self.rf.queryDb(sql1)[0][0]
+            sql2 = self._doSqlReplace(self.attack['attack2'])
+            ans2 = self.rf.queryDb(sql2)[0][0]
         else:
             pass
         diff = ans1 - ans2
@@ -51,6 +52,14 @@ class runAttack:
             self._error(f'''ERROR: {self.attack['attackType']}: failed check
                             ans1 {ans1}, ans2 {ans2}, expected {self.attack['difference']}, got {diff}''')
         return True
+
+    def _doSqlReplace(self,sql):
+        cols = re.findall('-..-',sql)
+        for col in cols:
+            val = self.rf.getNewRowColumn(col[1:3])
+            pattern = f"-{col[1:3]}-"
+            sql = re.sub(pattern,str(val),sql)
+        return sql
 
     attackMap = {
         'simpleDifference': _simpleDifference,
@@ -61,36 +70,36 @@ attacks = [
     {   
         'tagAsRun': True,
         'attackType': 'simpleDifference',
-        'describe': 'Simple difference attack with single OR, victim does not have attribute',
-        # The attack here is where there is one user with i1=12345. We want to know
-        # if that user has value t1='y' or not.
+        'describe': 'Simple difference attack with single OR, victim has attribute',
+        # The attack here is where there is one user with a unique value in column i1
+        # We want to know if that user has value t1='y' or not.
         'conditionsSql': "select count(*) from tab where t1='y' or i1=3456",
-        # I want to make a scenario where the victim has t1=y. So I prune all
-        # but one of the users that has i1=3456 and t1=y
+        # I want to make a scenario where the victim has t1=y. So I add a row with unique
+        # i1 and t1='y'
         'changes': [
-            {'change':'append', 'table':'tab','spec': {'aid1':['new'],'t1':['y'],'i1':[12345]}},
+            {'change':'append', 'table':'tab','spec': {'aid1':['unique'],'t1':['y'],'i1':['unique']}},
         ],
-        # The first query definately has the user
-        'attack1': "select count(distinct aid1) from tab where t1='y' or i1=12345",
+        # The first query definately has the victim
+        'attack1': "select count(distinct aid1) from tab where t1 = 'y' or i1 = -i1-",
         # The second query may or may not (but in this case also does).
-        'attack2': "select count(distinct aid1) from tab where t1='y'",
-        # If the second query does not have the victim, then the difference is 0
+        'attack2': "select count(distinct aid1) from tab where t1 = 'y'",
+        # If the second query has the victim, then the difference is 0
         'difference': 0
     },
     {   
         'tagAsRun': True,
         'attackType': 'simpleDifference',
-        'describe': 'Simple difference attack with single OR, victim has attribute',
+        'describe': 'Simple difference attack with single OR, victim does not have attribute',
         # The attack here is where there is one user with i1=12345. We want to know
         # if that user has value t1='y' or not.
         'conditionsSql': "select count(*) from tab where t1='y' or i1=12345",
         # I want to make a scenario where the victim does not have t1=y. So I prune all
         # but one of the users that has i1=12345 but not t1=y
         'changes': [
-            {'change':'strip', 'table':'tab','query': "t1 != 'y' and i1 == 12345"},
+            {'change':'append', 'table':'tab','spec': {'t1':['unique'],'i1':['unique']}},
         ],
         # The first query definately has the user
-        'attack1': "select count(distinct aid1) from tab where t1='y' or i1=12345",
+        'attack1': "select count(distinct aid1) from tab where t1='y' or i1 = -i1-",
         # The second query may or may not (in this case does not).
         'attack2': "select count(distinct aid1) from tab where t1='y'",
         # If the second query does not have the victim, then the difference is 1
