@@ -48,7 +48,7 @@ class runAttack:
         else:
             pass
         diff = ans1 - ans2
-        if diff != self.attack['difference']:
+        if ans1 <= 5 or ans2 <= 5 or diff != self.attack['difference']:
             self._error(f'''ERROR: {self.attack['attackType']}: failed check
                             ans1 {ans1}, ans2 {ans2}, expected {self.attack['difference']}, got {diff}''')
         return True
@@ -67,6 +67,132 @@ class runAttack:
 
 ''' List of Attacks '''
 attacks = [
+    {   
+        'tagAsRun': True,
+        'attackType': 'simpleDifference',
+        'describe': 'Simple difference attack with lone woman, victim does not have attribute',
+        # The attack here is where there is one user with t2 = 'f'. Want to learn t1
+        'conditionsSql': "select count(*) from tab where t1='y' or t2 = 'f'",
+        # Remove all t2='f' then add one back in
+        'changes': [
+            {'change':'strip', 'table':'tab','query': "t2 == 'f'"},
+            {'change':'append', 'table':'tab','spec': {'t1':['unique'],'t2':['f']}},
+        ],
+        # The first query definately excludes the victim
+        'attack1': "select count(distinct aid1) from tab where t1='y' and t2 = 'zz'",
+        # The second query may or may not (in this case does not).
+        'attack2': "select count(distinct aid1) from tab where t1='y'",
+        'difference': 0
+    },
+    {   
+        'tagAsRun': True,
+        'attackType': 'simpleDifference',
+        'describe': "Simple difference attack with NAND'd AND group, victim does not have attribute",
+        # The attack here is where there is one user with a unique combination of i1 and t2
+        # values, though each individually is not unique
+        'conditionsSql': "select count(*) from tab where t1='y' or i1=100 or t2='x'",
+        'changes': [
+            {'change':'strip', 'table':'tab','query': "t2 == 'x' and i1 == 100"},
+            {'change':'append', 'table':'tab','spec': {'t1':['unique'],'i1':[100],'t2':['x']}},
+        ],
+        # The first query definately excludes the victim
+        'attack1': "select count(distinct aid1) from tab where t1 = 'y' and not (i1 = 100 and t2 = 'x')",
+        # The second query may or may not (but in this case does not).
+        'attack2': "select count(distinct aid1) from tab where t1 = 'y'",
+        # If the second query has the victim, then the difference is 0
+        'difference': 0
+    },
+    {   
+        'tagAsRun': True,
+        'attackType': 'simpleDifference',
+        'describe': "Simple difference attack with NAND'd AND group, victim has attribute",
+        # The attack here is where there is one user with a unique combination of i1 and t2
+        # values, though each individually is not unique
+        'conditionsSql': "select count(*) from tab where t1='y' or i1=100 or t2='x'",
+        'changes': [
+            {'change':'strip', 'table':'tab','query': "t2 == 'x' and i1 == 100"},
+            {'change':'append', 'table':'tab','spec': {'t1':['y'],'i1':[100],'t2':['x']}},
+        ],
+        # The first query definately excludes the victim
+        'attack1': "select count(distinct aid1) from tab where t1 = 'y' and not (i1 = 100 and t2 = 'x')",
+        # The second query may or may not (but in this case also does).
+        'attack2': "select count(distinct aid1) from tab where t1 = 'y'",
+        # If the second query has the victim, then the difference is 0
+        'difference': -1
+    },
+    {   
+        'tagAsRun': True,
+        'attackType': 'simpleDifference',
+        'describe': 'Simple difference attack with single NAND, victim has attribute',
+        # The attack here is where there is one user with a unique value in column i1
+        # We want to know if that user has value t1='y' or not.
+        'conditionsSql': "select count(*) from tab where t1='y' or i1=100",
+        # I want to make a scenario where the victim has t1=y. So I add a row with unique
+        # i1 and t1='y'
+        'changes': [
+            {'change':'append', 'table':'tab','spec': {'aid1':['unique'],'t1':['y'],'i1':['unique']}},
+        ],
+        # The first query definately excludes the victim
+        'attack1': "select count(distinct aid1) from tab where t1 = 'y' and i1 <> -i1-",
+        # The second query may or may not (but in this case also does).
+        'attack2': "select count(distinct aid1) from tab where t1 = 'y'",
+        # If the second query has the victim, then the difference is -1
+        'difference': -1
+    },
+    {   
+        'tagAsRun': True,
+        'attackType': 'simpleDifference',
+        'describe': 'Simple difference attack with single NAND, victim does not have attribute',
+        # The attack here is where there is one user with a unique i1. We want to know
+        # if that user has value t1='y' or not.
+        'conditionsSql': "select count(*) from tab where t1='y' or i1=100",
+        # I want to make a scenario where the victim does not have t1=y.
+        'changes': [
+            {'change':'append', 'table':'tab','spec': {'t1':['unique'],'i1':['unique']}},
+        ],
+        # The first query definately excludes the user
+        'attack1': "select count(distinct aid1) from tab where t1='y' and i1 <> -i1-",
+        # The second query may or may not (in this case does not).
+        'attack2': "select count(distinct aid1) from tab where t1='y'",
+        # If the second query does not have the victim, then the difference is 1
+        'difference': 0
+    },
+    {   
+        'tagAsRun': True,
+        'attackType': 'simpleDifference',
+        'describe': "Simple difference attack with OR'd AND group, victim does not have attribute",
+        # The attack here is where there is one user with a unique combination of i1 and t2
+        # values, though each individually is not unique
+        'conditionsSql': "select count(*) from tab where t1='y' or i1=100 or t2='x'",
+        'changes': [
+            {'change':'strip', 'table':'tab','query': "t2 == 'x' and i1 == 100"},
+            {'change':'append', 'table':'tab','spec': {'t1':['unique'],'i1':[100],'t2':['x']}},
+        ],
+        # The first query definately has the victim
+        'attack1': "select count(distinct aid1) from tab where t1 = 'y' or (i1 = 100 and t2 = 'x')",
+        # The second query may or may not (but in this case does not).
+        'attack2': "select count(distinct aid1) from tab where t1 = 'y'",
+        # If the second query has the victim, then the difference is 0
+        'difference': 1
+    },
+    {   
+        'tagAsRun': True,
+        'attackType': 'simpleDifference',
+        'describe': "Simple difference attack with OR'd AND group, victim has attribute",
+        # The attack here is where there is one user with a unique combination of i1 and t2
+        # values, though each individually is not unique
+        'conditionsSql': "select count(*) from tab where t1='y' or i1=100 or t2='x'",
+        'changes': [
+            {'change':'strip', 'table':'tab','query': "t2 == 'x' and i1 == 100"},
+            {'change':'append', 'table':'tab','spec': {'t1':['y'],'i1':[100],'t2':['x']}},
+        ],
+        # The first query definately has the victim
+        'attack1': "select count(distinct aid1) from tab where t1 = 'y' or (i1 = 100 and t2 = 'x')",
+        # The second query may or may not (but in this case also does).
+        'attack2': "select count(distinct aid1) from tab where t1 = 'y'",
+        # If the second query has the victim, then the difference is 0
+        'difference': 0
+    },
     {   
         'tagAsRun': True,
         'attackType': 'simpleDifference',
@@ -90,11 +216,10 @@ attacks = [
         'tagAsRun': True,
         'attackType': 'simpleDifference',
         'describe': 'Simple difference attack with single OR, victim does not have attribute',
-        # The attack here is where there is one user with i1=12345. We want to know
+        # The attack here is where there is one user with a unique i1. We want to know
         # if that user has value t1='y' or not.
         'conditionsSql': "select count(*) from tab where t1='y' or i1=12345",
-        # I want to make a scenario where the victim does not have t1=y. So I prune all
-        # but one of the users that has i1=12345 but not t1=y
+        # I want to make a scenario where the victim does not have t1=y.
         'changes': [
             {'change':'append', 'table':'tab','spec': {'t1':['unique'],'i1':['unique']}},
         ],
@@ -107,7 +232,7 @@ attacks = [
     },
 ]
 
-if False: testControl = 'firstOnly'    # executes only the first test
+if True: testControl = 'firstOnly'    # executes only the first test
 elif True: testControl = 'tagged'    # executes only tests so tagged
 else: testControl = 'all'             # executes all tests
 
