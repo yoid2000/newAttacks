@@ -12,14 +12,16 @@ class runAttack:
     def __init__(self,attack):
         self.pp = pprint.PrettyPrinter(indent=4)
         self.attack = attack
+        dop = False
+        if 'doprint' in self.attack:
+            dop = self.attack['doprint']
         # build attack database
         self.sw = whereParser.simpleWhere(attack['conditionsSql'])
-        self.rf = rowFiller.rowFiller(self.sw,printIntermediateTables=False)
+        self.rf = rowFiller.rowFiller(self.sw,printIntermediateTables=False,dop=dop)
         self.rf.makeBaseTables()
         if len(self.rf.failedCombinations) > 0:
             print("Failed Combinations:")
             print(self.rf.failedCombinations)
-            quit()
         for change in attack['changes']:
             if change['change'] == 'append':
                 self.rf.appendDf(change['table'],change['spec'])
@@ -53,6 +55,12 @@ class runAttack:
                             ans1 {ans1}, ans2 {ans2}, expected {self.attack['difference']}, got {diff}''')
         return True
 
+    def _test(self, check=False):
+        ''' does nothing '''
+        print("Just a test:")
+        self.pp.pprint(self.attack)
+        return True
+
     def _doSqlReplace(self,sql):
         cols = re.findall('-..-',sql)
         for col in cols:
@@ -63,20 +71,26 @@ class runAttack:
 
     attackMap = {
         'simpleDifference': _simpleDifference,
+        'test': _test,
     }
+
+if False: testControl = 'firstOnly'    # executes only the first test
+elif False: testControl = 'tagged'    # executes only tests so tagged
+else: testControl = 'all'             # executes all tests
 
 ''' List of Attacks '''
 attacks = [
     {   
-        'tagAsRun': True,
-        'attackType': 'simpleDifference',
-        'describe': 'Simple difference attack with lone woman, victim does not have attribute',
+        'doprint': False,
+        'tagAsRun': False,
+        'attackType': 'test',
+        'describe': 'Just testing a new conditionsSql',
         # The attack here is where there is one user with t2 = 'f'. Want to learn t1
-        'conditionsSql': "select count(*) from tab where t1='y' or t2 = 'f'",
+        'conditionsSql': "select count(*) from tab where t1='y' and t2 in ('a','b','c')",
         # Remove all t2='f' then add one back in
         'changes': [
-            {'change':'strip', 'table':'tab','query': "t2 == 'f'"},
-            {'change':'append', 'table':'tab','spec': {'t1':['unique'],'t2':['f']}},
+            #{'change':'strip', 'table':'tab','query': "t2 == 'f'"},
+            #{'change':'append', 'table':'tab','spec': {'t1':['unique'],'t2':['f']}},
         ],
         # The first query definately excludes the victim
         'attack1': "select count(distinct aid1) from tab where t1='y' and t2 = 'zz'",
@@ -85,7 +99,25 @@ attacks = [
         'difference': 0
     },
     {   
-        'tagAsRun': True,
+        'tagAsRun': False,
+        'attackType': 'simpleDifference',
+        'describe': 'Simple difference attack with lone woman, victim does not have attribute',
+        # The attack here is where there is one user with t2 = 'f'. Want to learn t1
+        'conditionsSql': "select count(*) from tab where t1='y' or t2 in ('f','m')",
+        # Remove all t2='f' then add one back in
+        'changes': [
+            {'change':'strip', 'table':'tab','query': "t2 == 'f'"},
+            {'change':'strip', 'table':'tab','query': "t2 == 'zz'"},
+            {'change':'append', 'table':'tab','spec': {'t1':['unique'],'t2':['f']}},
+        ],
+        # The first query definately excludes the victim
+        'attack1': "select count(distinct aid1) from tab where t1='y' and t2 = 'm'",
+        # The second query may or may not (in this case does not).
+        'attack2': "select count(distinct aid1) from tab where t1='y'",
+        'difference': 0
+    },
+    {   
+        'tagAsRun': False,
         'attackType': 'simpleDifference',
         'describe': "Simple difference attack with NAND'd AND group, victim does not have attribute",
         # The attack here is where there is one user with a unique combination of i1 and t2
@@ -103,7 +135,7 @@ attacks = [
         'difference': 0
     },
     {   
-        'tagAsRun': True,
+        'tagAsRun': False,
         'attackType': 'simpleDifference',
         'describe': "Simple difference attack with NAND'd AND group, victim has attribute",
         # The attack here is where there is one user with a unique combination of i1 and t2
@@ -121,7 +153,7 @@ attacks = [
         'difference': -1
     },
     {   
-        'tagAsRun': True,
+        'tagAsRun': False,
         'attackType': 'simpleDifference',
         'describe': 'Simple difference attack with single NAND, victim has attribute',
         # The attack here is where there is one user with a unique value in column i1
@@ -140,7 +172,7 @@ attacks = [
         'difference': -1
     },
     {   
-        'tagAsRun': True,
+        'tagAsRun': False,
         'attackType': 'simpleDifference',
         'describe': 'Simple difference attack with single NAND, victim does not have attribute',
         # The attack here is where there is one user with a unique i1. We want to know
@@ -158,7 +190,7 @@ attacks = [
         'difference': 0
     },
     {   
-        'tagAsRun': True,
+        'tagAsRun': False,
         'attackType': 'simpleDifference',
         'describe': "Simple difference attack with OR'd AND group, victim does not have attribute",
         # The attack here is where there is one user with a unique combination of i1 and t2
@@ -176,7 +208,7 @@ attacks = [
         'difference': 1
     },
     {   
-        'tagAsRun': True,
+        'tagAsRun': False,
         'attackType': 'simpleDifference',
         'describe': "Simple difference attack with OR'd AND group, victim has attribute",
         # The attack here is where there is one user with a unique combination of i1 and t2
@@ -194,7 +226,7 @@ attacks = [
         'difference': 0
     },
     {   
-        'tagAsRun': True,
+        'tagAsRun': False,
         'attackType': 'simpleDifference',
         'describe': 'Simple difference attack with single OR, victim has attribute',
         # The attack here is where there is one user with a unique value in column i1
@@ -213,7 +245,7 @@ attacks = [
         'difference': 0
     },
     {   
-        'tagAsRun': True,
+        'tagAsRun': False,
         'attackType': 'simpleDifference',
         'describe': 'Simple difference attack with single OR, victim does not have attribute',
         # The attack here is where there is one user with a unique i1. We want to know
@@ -231,10 +263,6 @@ attacks = [
         'difference': 1
     },
 ]
-
-if True: testControl = 'firstOnly'    # executes only the first test
-elif True: testControl = 'tagged'    # executes only tests so tagged
-else: testControl = 'all'             # executes all tests
 
 for attack in attacks:
     if (testControl == 'firstOnly' or testControl == 'all' or

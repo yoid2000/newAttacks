@@ -1,10 +1,10 @@
-import re
+import itertools
 
-test = "this is a -b1- and a -c1-"
-vals = re.findall('-..-',test)
-sub = 'xxx'
-for val in vals:
-    print(val[1:3])
-    pattern = f"-{val[1:3]}-"
-    test = re.sub(pattern,sub,test)
-    print(test)
+boo = [['1','c'],'2',['3','d']]
+hoo = [['x','y'],'w']
+for x in itertools.product(boo):
+    print(x)
+for x in itertools.product(*boo):
+    print(x)
+for x in itertools.product(*boo,*hoo):
+    print(x)
