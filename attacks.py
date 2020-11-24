@@ -69,17 +69,64 @@ class runAttack:
             sql = re.sub(pattern,str(val),sql)
         return sql
 
+    def _sortAnsByBucket(self,ans):
+        s = {}
+        for row in ans:
+            s[row[0]] = row[1]
+        return s
+
+    def _simpleFirstDerivitiveDifference(self, check=False):
+        if check:
+            # First run check to make sure that the attack works on raw data
+            sql1 = self._doSqlReplace(self.attack['attack1'])
+            ans1 = self.rf.queryDb(sql1)
+            sql2 = self._doSqlReplace(self.attack['attack2'])
+            ans2 = self.rf.queryDb(sql2)
+        else:
+            pass
+        sort1 = self._sortAnsByBucket(ans1)
+        sort2 = self._sortAnsByBucket(ans2)
+        maxDiff = float('-inf')
+        maxBucket = None
+        for bucket,count1 in sort1.items():
+            if bucket in sort2:
+                count2 = sort2[bucket]
+                diff = count2 - count1
+                if diff > maxDiff:
+                    maxBucket = bucket
+                    maxDiff = diff
+        if maxBucket != self.attack['victimBucket']:
+            self._error(f'''ERROR: {self.attack['attackType']}: failed check
+                            ans1 {ans1}, ans2 {ans2}, expected {self.attack['victimBucket']}, got {maxBucket}''')
+        return True
+
     attackMap = {
         'simpleDifference': _simpleDifference,
+        'simpleFirstDerivitiveDifference': _simpleFirstDerivitiveDifference,
         'test': _test,
     }
 
-if False: testControl = 'firstOnly'    # executes only the first test
+if True: testControl = 'firstOnly'    # executes only the first test
 elif False: testControl = 'tagged'    # executes only tests so tagged
 else: testControl = 'all'             # executes all tests
 
 ''' List of Attacks '''
 attacks = [
+    {   
+        'tagAsRun': False,
+        'attackType': 'simpleFirstDerivitiveDifference',
+        'describe': 'First derivitive difference attack with single NAND, victim does not have attribute',
+        # We want to learn which t1 bucket the victim is in
+        'conditionsSql': "select count(*) from tab where t1 in ('a','b','c') and i1 = 100",
+        # I want to make a scenario where the victim does not have t1=y.
+        'changes': [
+            {'change':'append', 'table':'tab','spec': {'t1':['a'],'i1':['unique']}},
+        ],
+        # The first query definately has the user
+        'attack1': "select t1, count(distinct aid1) from tab where i1 <> -i1- group by 1",
+        'attack2': "select t1, count(distinct aid1) from tab group by 1",
+        'victimBucket': 'a',
+    },
     {   
         'doprint': False,
         'tagAsRun': False,
