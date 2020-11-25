@@ -58,7 +58,8 @@ class runAttack:
     def _test(self, check=False):
         ''' does nothing '''
         print("Just a test:")
-        self.pp.pprint(self.attack)
+        if self.attack['doprint']:
+            self.pp.pprint(self.attack)
         return True
 
     def _doSqlReplace(self,sql):
@@ -100,9 +101,60 @@ class runAttack:
                             ans1 {ans1}, ans2 {ans2}, expected {self.attack['victimBucket']}, got {maxBucket}''')
         return True
 
+    def _simpleListUsers(self, check=False):
+        if check:
+            # First run check to make sure that the attack works on raw data
+            sql1 = self._doSqlReplace(self.attack['attack'])
+            ans1 = self.rf.queryDb(sql1)
+        else:
+            pass
+        # TODO: deal with error or null responses from queryDb
+        if len(ans1) < 1:
+            self._error(f'''ERROR: {self.attack['attackType']}: failed check
+                            got len {len(ans1)}''')
+        return True
+
+    def _simpleAveraging(self, check=False):
+        # This query is on the raw data, so that we learn the expected exact answer
+        sql1 = self._doSqlReplace(self.attack['attack'])
+        exactCount = self.rf.queryDb(sql1)[0][0]
+        if check:
+            sumCounts = 0
+            for _ in range(self.attack['repeats']):
+                sumCounts += self.rf.queryDb(sql1)[0][0]
+            averagedCount = sumCounts / self.attack['repeats']
+        else:
+            pass
+        if averagedCount != exactCount:
+            self._error(f'''ERROR: {self.attack['attackType']}: failed check
+                            got averaged count {averagedCount}, expected {exactCount}''')
+        return True
+
+    def _splitAveraging(self, check=False):
+        # This query is on the raw data, so that we learn the expected exact answer
+        sql = self._doSqlReplace(self.attack['checkQuery'])
+        exactCount = self.rf.queryDb(sql)[0][0]
+        if check:
+            sumCounts = 0
+            for val in self.attack['attackVals']:
+                sql1 = self.attack['attackTemplate1'].replace('---',str(val))
+                sumCounts += self.rf.queryDb(sql1)[0][0]
+                sql2 = self.attack['attackTemplate2'].replace('---',str(val))
+                sumCounts += self.rf.queryDb(sql2)[0][0]
+            averagedCount = sumCounts / len(self.attack['attackVals'])
+        else:
+            pass
+        if averagedCount != exactCount:
+            self._error(f'''ERROR: {self.attack['attackType']}: failed check
+                            got averaged count {averagedCount}, expected {exactCount}''')
+        return True
+
     attackMap = {
         'simpleDifference': _simpleDifference,
         'simpleFirstDerivitiveDifference': _simpleFirstDerivitiveDifference,
+        'simpleListUsers': _simpleListUsers,
+        'simpleAveraging': _simpleAveraging,
+        'splitAveraging': _splitAveraging,
         'test': _test,
     }
 
@@ -112,6 +164,57 @@ else: testControl = 'all'             # executes all tests
 
 ''' List of Attacks '''
 attacks = [
+    {   
+        'tagAsRun': False,
+        'attackType': 'splitAveraging',
+        'describe': 'Split averaging attack to learn exact count',
+        'conditionsSql': '''select count(*) from tab where t1='y' or
+                            i1 in (1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20)''',
+        'changes': [
+        ],
+        'checkQuery': "select count(distinct aid1) from tab where t1='y'",
+        'attackTemplate1': "select count(distinct aid1) from tab where t1='y' and i1 = ---",
+        'attackTemplate2': "select count(distinct aid1) from tab where t1='y' and i1 <> ---",
+        'attackVals': [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20],
+    },
+    {   
+        'tagAsRun': False,
+        'attackType': 'simpleAveraging',
+        'describe': 'Simple averaging attack to learn exact count',
+        'conditionsSql': "select count(*) from tab where t1='y' or i1=100",
+        'changes': [
+        ],
+        'attack': "select count(distinct aid1) from tab where t1='y'",
+        'repeats': 100,
+    },
+    {   
+        'tagAsRun': False,
+        'attackType': 'simpleListUsers',
+        'describe': 'Select star',
+        'conditionsSql': "select count(*) from tab where t1='y' or i1=100",
+        'changes': [
+        ],
+        'attack': "select * from tab",
+    },
+    {   
+        'tagAsRun': False,
+        'attackType': 'simpleFirstDerivitiveDifference',
+        'describe': '''First derivitive difference attack with NAND'd AND group,
+                       victim does not have attribute''',
+        # We want to learn which t1 bucket the victim is in
+        'conditionsSql': '''select count(*) from tab where t1 in ('a','b','c') or
+                            i1 = 100 or t2 = 'x' or t3 = 'y' ''',
+        # I want to make a scenario where the victim does not have t1=y.
+        'changes': [
+            {'change':'strip', 'table':'tab','query': "t2 == 'x' and i1 == 100 and t3 == 'y'"},
+            {'change':'append', 'table':'tab','spec': {'t1':['a'],'t2':['x'],'i1':[100],'t3':['y']}},
+        ],
+        # The first query definately has the user
+        'attack1': '''select t1, count(distinct aid1) from tab where
+                             not (i1 = 100 and t2 = 'x' and t3 = 'y') group by 1''',
+        'attack2': "select t1, count(distinct aid1) from tab group by 1",
+        'victimBucket': 'a',
+    },
     {   
         'tagAsRun': False,
         'attackType': 'simpleFirstDerivitiveDifference',
@@ -297,7 +400,7 @@ attacks = [
         'describe': 'Simple difference attack with single OR, victim does not have attribute',
         # The attack here is where there is one user with a unique i1. We want to know
         # if that user has value t1='y' or not.
-        'conditionsSql': "select count(*) from tab where t1='y' or i1=12345",
+        'conditionsSql': "select count(*) from tab where t1='y' or i1=100",
         # I want to make a scenario where the victim does not have t1=y.
         'changes': [
             {'change':'append', 'table':'tab','spec': {'t1':['unique'],'i1':['unique']}},
