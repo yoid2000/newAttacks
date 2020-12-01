@@ -2,6 +2,7 @@ import whereParser
 import rowFiller
 import pprint
 import re
+import requests
 import pandas as pd
 import numpy as np
 
@@ -9,9 +10,12 @@ defaultNumSamples = 100               # number of times each test should repeat 
 
 class runAttack:
     ''' Contains various support routines for running attacks '''
-    def __init__(self,attack):
+    def __init__(self,attack,queryUrl='https://db-proto.probsteide.com/api',
+                 fileUrl='https://db-proto.probsteide.com/api/upload-db'):
         self.pp = pprint.PrettyPrinter(indent=4)
         self.attack = attack
+        self.queryUrl = queryUrl
+        self.fileUrl = fileUrl
         dop = False
         if 'doprint' in self.attack:
             dop = self.attack['doprint']
@@ -28,12 +32,45 @@ class runAttack:
             elif change['change'] == 'strip':
                 self.rf.stripDf(change['table'],change['query'])
         self.rf.baseTablesToDb()
+        self.postDb()
 
     def runCheck(self):
+        self.runAttack(check=True)
+
+    def runAttack(self,check=False):
         ''' This just checks to make sure that an attack on the raw data works as expected '''
         attackFunc = self.attackMap[self.attack['attackType']]
-        if attackFunc(self,check=True):
+        if attackFunc(self,check=check):
             print(f"PASSED: {self.attack['describe']}")
+
+    def queryAnon(self,sql,anon=True,db='testAttack.db'):
+        aidCols = self.rf.getAidColumns()
+        req = {'Anonymize':anon,
+               'database':db,
+               'query':sql,
+               'seed':1,
+               'aid_columns':aidCols,
+               }
+        response = requests.post(self.queryUrl, json=req)
+        ans = response.json()
+        if ans['success'] == False:
+            print("Query Error")
+            self.pp.pprint(ans)
+            return None
+        return ans
+
+    def postDb(self):
+        fin = open(self.rf.getDbPath(), 'rb')
+        data = fin.read()
+        files = {'file': fin}
+        headers = {
+            'db-name':self.rf.getDbName(),
+            'password':'great success',
+            'Content-Type': 'application/octet-stream',
+        }
+        r = requests.post(url=self.fileUrl, data=data, headers=headers)
+        print(r.text)
+        fin.close()
 
     def _error(self,msg):
         print(msg)
@@ -123,11 +160,14 @@ class runAttack:
             for _ in range(self.attack['repeats']):
                 sumCounts += self.rf.queryDb(sql1)[0][0]
             averagedCount = sumCounts / self.attack['repeats']
-        else:
-            pass
-        if averagedCount != exactCount:
-            self._error(f'''ERROR: {self.attack['attackType']}: failed check
-                            got averaged count {averagedCount}, expected {exactCount}''')
+            if averagedCount != exactCount:
+                self._error(f'''ERROR: {self.attack['attackType']}: failed check
+                                got averaged count {averagedCount}, expected {exactCount}''')
+            return True
+        pass
+        ans = self.queryAnon(sql1)
+        if ans is not None:
+            self.pp.pprint(ans)
         return True
 
     def _splitAveraging(self, check=False):
@@ -166,6 +206,16 @@ else: testControl = 'all'             # executes all tests
 attacks = [
     {   
         'tagAsRun': False,
+        'attackType': 'simpleAveraging',
+        'describe': 'Simple averaging attack to learn exact count',
+        'conditionsSql': "select count(*) from tab where t1='y' or i1=100",
+        'changes': [
+        ],
+        'attack': "select count(distinct aid1) from tab where t1='y'",
+        'repeats': 100,
+    },
+    {   
+        'tagAsRun': False,
         'attackType': 'splitAveraging',
         'describe': 'Split averaging attack to learn exact count',
         'conditionsSql': '''select count(*) from tab where t1='y' or
@@ -176,16 +226,6 @@ attacks = [
         'attackTemplate1': "select count(distinct aid1) from tab where t1='y' and i1 = ---",
         'attackTemplate2': "select count(distinct aid1) from tab where t1='y' and i1 <> ---",
         'attackVals': [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20],
-    },
-    {   
-        'tagAsRun': False,
-        'attackType': 'simpleAveraging',
-        'describe': 'Simple averaging attack to learn exact count',
-        'conditionsSql': "select count(*) from tab where t1='y' or i1=100",
-        'changes': [
-        ],
-        'attack': "select count(distinct aid1) from tab where t1='y'",
-        'repeats': 100,
     },
     {   
         'tagAsRun': False,
@@ -419,5 +459,6 @@ for attack in attacks:
         (testControl == 'tagged' and attack['tagAsRun'])):
         ra = runAttack(attack)
         ra.runCheck()
+        ra.runAttack()
     if testControl == 'firstOnly':
         break
